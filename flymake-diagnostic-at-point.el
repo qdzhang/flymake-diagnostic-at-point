@@ -3,10 +3,11 @@
 ;; Copyright (C) 2018 Ricardo Martins
 
 ;; Author: Ricardo Martins <ricardo@scarybox.net>
-;; URL: https://github.com/meqif/flymake-diagnostic-at-point
+;; Maintainer: Qd Zhang <qdzhangcn@gmail.com>
+;; URL: https://github.com/qdzhang/flymake-diagnostic-at-point
 ;; Keywords: convenience, languages, tools
-;; Version: 1.2.0
-;; Package-Requires: ((emacs "26.1") (popup "0.5.3"))
+;; Version: 2.0.0
+;; Package-Requires: ((emacs "27.1") (posframe "1.2.0"))
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -27,14 +28,14 @@
 ;;
 ;; The display function can be customized through the variable
 ;; `flymake-diagnostic-at-point-display-diagnostic-function' to show the
-;; diagnostics in a popup, in the minibuffer, or in some other way.
+;; diagnostics in a childframe, in the minibuffer, or in some other way.
 ;;
 ;; Check out the README for more information.
 
 ;;; Code:
 
 (require 'flymake)
-(require 'popup)
+(require 'posframe)
 
 (defcustom flymake-diagnostic-at-point-timer-delay 0.5
   "Delay in seconds before displaying errors at point."
@@ -48,14 +49,19 @@
   :type '(choice (const :tag "No prefix" nil)
                  string))
 
+(defcustom flymake-posframe-buffer " *flymake-posframe-buffer*"
+  "Name of the flymake posframe buffer."
+  :group 'flymake-diagnostic-at-point
+  :type 'string)
+
 (defcustom flymake-diagnostic-at-point-display-diagnostic-function
-  'flymake-diagnostic-at-point-display-popup
+  'flymake-diagnostic-at-point-display-posframe
   "The function to be used to display the diagnostic message."
   :group 'flymake-diagnostic-at-point
-  :type '(choice (const :tag "Display error messages in a popup"
-                        flymake-diagnostic-at-point-display-popup)
-                 (const :tag "Display error messages in the minibuffer"
+  :type '(choice (const :tag "Display error messages in the minibuffer"
                         flymake-diagnostic-at-point-display-minibuffer)
+                 (const :tag "Display error messages in a posframe"
+                        flymake-diagnostic-at-point-display-posframe)
                  (function :tag "Error display function")))
 
 (defvar-local flymake-diagnostic-at-point-timer nil
@@ -65,13 +71,47 @@
   "Get the flymake diagnostic text for the thing at point."
   (flymake--diag-text (get-char-property (point) 'flymake-diagnostic)))
 
-(defun flymake-diagnostic-at-point-display-popup (text)
-  "Display the flymake diagnostic TEXT inside a popup."
-  (popup-tip (concat flymake-diagnostic-at-point-error-prefix text)))
-
 (defun flymake-diagnostic-at-point-display-minibuffer (text)
   "Display the flymake diagnostic TEXT in the minibuffer."
   (message (concat flymake-diagnostic-at-point-error-prefix text)))
+
+(defvar flymake-diagnostic-at-point-hide-posframe-hooks
+  '(pre-command-hook post-command-hook focus-out-hook)
+  "The hooks which should trigger automatic removal of the posframe.")
+
+(defface flymake-diagnostic-at-point-posframe-background-face
+  '((t :inherit lazy-highlight))
+  "The background color of the flymake-posframe frame.
+Only the `background' is used in this face."
+  :group 'flymake-posframe)
+
+(defface flymake-diagnostic-at-point-posframe-foreground-face
+  '((t :inherit lazy-highlight))
+  "The background color of the flymake-posframe frame.
+Only the `foreground' is used in this face."
+  :group 'flymake-posframe)
+
+(defun flymake-posframe-hide ()
+  "Hide current flymake posframe."
+  (posframe-hide flymake-posframe-buffer)
+  (dolist (hook flymake-diagnostic-at-point-hide-posframe-hooks)
+    (remove-hook hook #'flymake-posframe-hide t)))
+
+(defun flymake-diagnostic-at-point-display-posframe (text)
+  "Display the flymake diagnostic TEXT in a posframe."
+  (posframe-show
+   flymake-posframe-buffer
+   :internal-border-width 3
+   :left-fringe 1
+   :right-fringe 1
+   :foreground-color
+   (face-foreground 'flymake-diagnostic-at-point-posframe-foreground-face nil t)
+   :background-color
+   (face-background 'flymake-diagnostic-at-point-posframe-background-face nil t)
+   :string (concat flymake-diagnostic-at-point-error-prefix text))
+
+  (dolist (hook flymake-diagnostic-at-point-hide-posframe-hooks)
+    (add-hook hook #'flymake-posframe-hide nil t)))
 
 (defun flymake-diagnostic-at-point-maybe-display ()
   "Display the flymake diagnostic text for the thing at point.
@@ -107,7 +147,8 @@ in `flymake-diagnostic-at-point-display-diagnostic-function.'"
   "Set or cancel flymake message display timer after the frame focus changes."
   (if (frame-focus-state)
       (flymake-diagnostic-at-point-set-timer)
-    (flymake-diagnostic-at-point-cancel-timer)))
+    (flymake-diagnostic-at-point-cancel-timer)
+    (flymake-posframe-hide)))
 
 (defun flymake-diagnostic-at-point-setup ()
   "Setup the hooks for `flymake-diagnostic-at-point-mode'."
